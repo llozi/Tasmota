@@ -33,8 +33,8 @@
  * options.
  * This driver is meant to only read the angle via I2C so the other output options are not
  * relevant and are not implemented.
- *
- * The sensor accepts an angle offset to enable setting of north direction (0°).
+ * As this driver communicates with the sensor through I2C the mode pin of the sensor chip
+ * needs to be set to high (or left open).
  *
  * The sensor can be configured to increase angle value when turning clockwise or
  * counterclockwise.
@@ -51,8 +51,9 @@
  * This probably may destroy the factory programmed values in EEPROM which are not meant
  * to be changed by users.
  *
- * I2C Address: 0x06 (the datasheet mentions that it may be programmed to use 0x46, which would
- *                    collide with PCA9685, XI2C_1. 0x46 address is not supported here.)
+ * I2C Address: 0x06 (the datasheet mentions that it may be programmed to use 0x46,nstead
+ *                    which would collide with PCA9685, XI2C_1.
+ *                    0x46 address is not supported here.)
  *
 \*********************************************************************************************/
 
@@ -71,6 +72,8 @@ const char JSON_SNS_ANGLE[] PROGMEM = ",\"%s\":{\"" D_JSON_ANGLE "\":%d}";
 #ifdef USE_WEBSERVER
 const char HTTP_SNS_ANGLE[]   PROGMEM = "{s}%s "  D_ANGLE         "{m}%d " D_UNIT_ANGLE                 "{e}";
 #endif // USE_WEBSERVER
+
+const char MT6701_CONF_RESPONSE[] PROGMEM = "{\"MT6701_CONF\":{\"%s\":%s}}";
 
 char MT6701_name[] = "MT6701";
 
@@ -103,11 +106,9 @@ const uint8_t MT6701_I2C_EEPROM_HYST_REG_L = 0x34;
 // Z_PULSE_WIDTH
 const uint8_t MT6701_I2C_EEPROM_Z_PULSE_WIDTH_REG   = 0x32;
 const uint8_t MT6701_I2C_EEPROM_Z_PULSE_WIDTH_BIT_S = 4;
-*/
 // ZERO
 #define MT6701_I2C_EEPROM_ZERO_REG_H  0x32
 #define MT6701_I2C_EEPROM_ZERO_REG_L  0x33
-/* not implemented
 // PWM_FREQ
 const uint8_t MT6701_I2C_EEPROM_PWM_FREQ_REG = 0x38;
 const uint8_t MT6701_I2C_EEPROM_PWM_FREQ_BIT = 7;
@@ -136,10 +137,13 @@ uint8_t mt6701_found = 0;
 uint8_t mt6701_valid = 0;
 float mt6701_angle = 0;
 
+/*****************************************************************************/
 void mt6701Detect(void) {
   // Check if sensor is connected on I2C address. There is no secure way to find out whether
   // the device responding under MT6701_ADDRESS is really an MT6701, so we only check whether
   // there is a response when trying to read from some registers.
+  // An option would be to try to write to some of the registers and check whether the written
+  // data can be read back. Not shure whether that would be helpful.
   uint8_t high_byte;
   uint8_t low_byte;
   if (I2cValidRead8(&high_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_H)
@@ -163,6 +167,7 @@ void mt6701Detect(void) {
   }
 }
 
+/*****************************************************************************/
 bool mt6701Read_angle(void) {
   uint8_t high_byte;
   uint8_t low_byte;
@@ -182,10 +187,12 @@ bool mt6701Read_angle(void) {
 }
 
 
+/*****************************************************************************/
 void mt6701EverySecond(void) {
    mt6701Read_angle();
 }
 
+/*****************************************************************************/
 void mt6701Show(bool json) {
   char angle_str[8];
 
@@ -205,6 +212,7 @@ void mt6701Show(bool json) {
   }
 }
 
+/*****************************************************************************/
 bool mt6701_Command(void) {
   bool serviced = true;
   uint8_t paramcount = 0;
@@ -213,12 +221,34 @@ bool mt6701_Command(void) {
   } else {
     return false;
   }
-  // scan the parameter string to convert it to a standard form
+
+  char argument[XdrvMailbox.data_len];
+  // scan the parameter string to convert it to a standard form and count the
+  // number of delimeted elements
   for (uint32_t ca = 0; ca < XdrvMailbox.data_len; ca++) {
     if ((' ' == XdrvMailbox.data[ca]) || ('=' == XdrvMailbox.data[ca])) { XdrvMailbox.data[ca] = ','; }
     if (',' == XdrvMailbox.data[ca]) { paramcount++; }
   }
-  UpperCase(XdrvMailbox.data,XdrvMailbox.data);
+  UpperCase(XdrvMailbox.data, XdrvMailbox.data);
+
+  if (!strcmp(ArgV(argument, 1), "DIR"))  {
+    if (paramcount > 1) {
+      if (!strcmp(ArgV(argument, 2), "CW")) {
+        //Settings->mt6701_dir = 0;
+        //Response_P(MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir);   // "{\"MT6701_CONF\":{\"%s\":%s}}"
+        return true;
+      if (!strcmp(ArgV(argument, 2), "CCW")) {
+        //Settings->mt6701_dir = 0;
+        //Response_P(MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir);   // "{\"MT6701_CONF\":{\"%s\":%s}}"
+      } else {
+        return false;
+      }
+
+    } else { // No parameter was given for DIR so we return the current configured value
+      //Response_P((MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir ? "CCW" : "CW");   // "{\"MT6701_CONF\":{\"%s\":%s}}"
+      return true;
+    }
+  }
 
   return serviced;
 }
