@@ -136,8 +136,7 @@ uint8_t mt6701_found = 0;
 uint8_t mt6701_valid = 0;
 float mt6701_angle = 0;
 
-void mt6701Detect(void)
-{
+void mt6701Detect(void) {
   // Check if sensor is connected on I2C address. There is no secure way to find out whether
   // the device responding under MT6701_ADDRESS is really an MT6701, so we only check whether
   // there is a response when trying to read from some registers.
@@ -164,8 +163,7 @@ void mt6701Detect(void)
   }
 }
 
-bool mt6701Read_angle(void)
-{
+bool mt6701Read_angle(void) {
   uint8_t high_byte;
   uint8_t low_byte;
   uint16_t raw_angle;
@@ -184,13 +182,11 @@ bool mt6701Read_angle(void)
 }
 
 
-void mt6701EverySecond(void)
-{
+void mt6701EverySecond(void) {
    mt6701Read_angle();
 }
 
-void mt6701Show(bool json)
-{
+void mt6701Show(bool json) {
   char angle_str[8];
 
   if (mt601_valid) {
@@ -209,6 +205,23 @@ void mt6701Show(bool json)
   }
 }
 
+bool mt6701_Command(void) {
+  bool serviced = true;
+  uint8_t paramcount = 0;
+  if (XdrvMailbox.data_len > 0) {
+    paramcount = 1;
+  } else {
+    return false;
+  }
+  // scan the parameter string to convert it to a standard form
+  for (uint32_t ca = 0; ca < XdrvMailbox.data_len; ca++) {
+    if ((' ' == XdrvMailbox.data[ca]) || ('=' == XdrvMailbox.data[ca])) { XdrvMailbox.data[ca] = ','; }
+    if (',' == XdrvMailbox.data[ca]) { paramcount++; }
+  }
+  UpperCase(XdrvMailbox.data,XdrvMailbox.data);
+
+  return serviced;
+}
 
 
 /*********************************************************************************************\
@@ -255,6 +268,7 @@ bool Xsns114(byte callback_id) {
       case FUNC_SAVE_BEFORE_RESTART:
         break;
       case FUNC_COMMAND:
+        result = mt6701_Command();
         break;
     }
   }
