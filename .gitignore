@@ -42,6 +42,8 @@ lib/libesp32/berry/berry
 *.bak
 *.code-workspace
 
+## vi swap files
+**/.*.swp
 ## non-public files
 tasmota/include/local_ca_data.h
 tasmota/include/local_ca_descriptor.h
