@@ -68,14 +68,14 @@
 const char JSON_SNS_ANGLE[] PROGMEM = ",\"%s\":{\"" D_JSON_ANGLE "\":%d}";
 
 #define D_ANGLE "Angle"
-#define D_UNIT_ANGLE "deg"
+//#define D_UNIT_ANGLE "deg"
 #ifdef USE_WEBSERVER
 const char HTTP_SNS_ANGLE[]   PROGMEM = "{s}%s "  D_ANGLE         "{m}%d " D_UNIT_ANGLE                 "{e}";
 #endif // USE_WEBSERVER
 
 const char MT6701_CONF_RESPONSE[] PROGMEM = "{\"MT6701_CONF\":{\"%s\":%s}}";
 
-char MT6701_name[] = "MT6701";
+char mt6701_name[] = "MT6701";
 
 /*=== Sensor register addresses ===*/
 // Angle Data Register
@@ -138,7 +138,7 @@ uint8_t mt6701_valid = 0;
 float mt6701_angle = 0;
 
 /*****************************************************************************/
-void mt6701Detect(void) {
+bool mt6701Detect(void) {
   // Check if sensor is connected on I2C address. There is no secure way to find out whether
   // the device responding under MT6701_ADDRESS is really an MT6701, so we only check whether
   // there is a response when trying to read from some registers.
@@ -150,18 +150,16 @@ void mt6701Detect(void) {
       && I2cValidRead8(&low_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_L)) {
     mt6701_found = true;
     // Log sensor found
-    snprintf_P(log_data, sizeof(log_data), PSTR(D_LOG_I2C "MT6701" D_FOUND_AT " 0x%X"), i, MT6701_ADDRESS);
-    AddLog(LOG_LEVEL_INFO);
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C "MT6701" D_FOUND_AT " 0x%X"), MT6701_ADDRESS);
 
     // do some initializations to the sensor here
     // maybe a persistant zero angle offset and the positive rotation direction.
 
-    return true
+    return true;
 
   } else {
     mt6701_found = false;
-    snprintf_P(log_data, sizeof(log_data), PSTR(D_LOG_I2C "MT6701: No sensor found"));
-    AddLog(LOG_LEVEL_INFO);
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C "MT6701: No sensor found"));
 
     return false;
   }
@@ -196,7 +194,7 @@ void mt6701EverySecond(void) {
 void mt6701Show(bool json) {
   char angle_str[8];
 
-  if (mt601_valid) {
+  if (mt6701_valid) {
 
     // convert angle to string with two decimals
     dtostrf(mt6701_angle, sizeof(angle_str) - 1, 2, angle_str);
@@ -237,6 +235,7 @@ bool mt6701_Command(void) {
         //Settings->mt6701_dir = 0;
         //Response_P(MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir);   // "{\"MT6701_CONF\":{\"%s\":%s}}"
         return true;
+      }
       if (!strcmp(ArgV(argument, 2), "CCW")) {
         //Settings->mt6701_dir = 0;
         //Response_P(MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir);   // "{\"MT6701_CONF\":{\"%s\":%s}}"
@@ -269,7 +268,7 @@ bool mt6701_Command(void) {
  * @post    None.
  *
  */
-bool Xsns114(byte callback_id) {
+bool Xsns114(uint32_t callback_id) {
 
   // Set return value to `false`
   bool result = false;
@@ -291,7 +290,7 @@ bool Xsns114(byte callback_id) {
          mt6701Show(1);
         break;
 #ifdef USE_WEBSERVER
-      case FUNC_WEB_APPEND:
+      case FUNC_WEB_SENSOR:
          mt6701Show(0);
         break;
 #endif // USE_WEBSERVER
