@@ -41,3 +41,8 @@ lib/libesp32/berry/berry
 .vscode/settings.json
 *.bak
 *.code-workspace
+
+## non-public files
+tasmota/include/local_ca_data.h
+tasmota/include/local_ca_descriptor.h
+
