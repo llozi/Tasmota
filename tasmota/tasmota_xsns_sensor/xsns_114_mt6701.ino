@@ -155,13 +155,15 @@ float mt6701_sum_cos = 0;
 #define DEG_TO_RAD 0.017453292519943295769236907684886
 #define RAD_TO_DEG 57.295779513082320876798154814105
 
-/*****************************************************************************/
+/*****************************************************************************
+* Check if sensor is connected on I2C address.
+* There is no secure way to find out whether the device responding under
+* MT6701_ADDRESS is really an MT6701, so we only check whether there is a
+* response when trying to read from some registers.
+* An option would be to try to write to some of the registers and check whether
+* the written data can be read back. Not shure whether that would be helpful.
+*/
 bool mt6701Detect(void) {
-  // Check if sensor is connected on I2C address. There is no secure way to find out whether
-  // the device responding under MT6701_ADDRESS is really an MT6701, so we only check whether
-  // there is a response when trying to read from some registers.
-  // An option would be to try to write to some of the registers and check whether the written
-  // data can be read back. Not shure whether that would be helpful.
   uint8_t high_byte;
   uint8_t low_byte;
   if (I2cValidRead8(&high_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_H)
@@ -171,7 +173,7 @@ bool mt6701Detect(void) {
     AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C "MT6701" D_FOUND_AT " 0x%X"), MT6701_ADDRESS);
 
     // do some initializations to the sensor here
-    // maybe a persistant zero angle offset and the positive rotation direction.
+    // maybe setting the positive rotation direction.
 
     return true;
 
@@ -183,7 +185,9 @@ bool mt6701Detect(void) {
   }
 }
 
-/*****************************************************************************/
+/*****************************************************************************
+* Sample MT6701 sensor
+*/
 bool mt6701Read_angle(void) {
   uint8_t high_byte;
   uint8_t low_byte;
@@ -205,15 +209,17 @@ bool mt6701Read_angle(void) {
 }
 
 
-/*****************************************************************************/
+/*****************************************************************************
+* Sample MT6701 sensor whenever a FUNC_EVERY_SECOND callback arrives,
+* sum up the angle sample's sine and cosine for averaging using the
+* Yamartino method.
+*/
 void mt6701EverySecond(void) {
   if (mt6701Read_angle()) {
     /*
     if (mt6701_angle > mt6701_max_angle) mt6701_max_angle = mt6701_angle;
     if (mt6701_angle < mt6701_min_angle) mt6701_min_angle = mt6701_angle;
     */
-    // sum up the angle samples sine's and cosine's for averaging using the
-    // Yamartino method
     mt6701_rad_angle = mt6701_raw_angle * TWO_PI / 16384; // full circle is 2^14
     mt6701_sum_sin += sin(mt6701_rad_angle);
     mt6701_sum_cos += cos(mt6701_rad_angle);
@@ -225,6 +231,7 @@ void mt6701EverySecond(void) {
  *  Filter multiple samples to get an average wind direction using Yamartino
  *  method, see https://en.wikipedia.org/wiki/Yamartino_method
  *  also see Directional statistics https://en.wikipedia.org/wiki/Directional_statistics
+ *  Produce JSON or HTTP string and send to respective network channel.
  */
 void mt6701Show(bool json) {
   char angle_str[8];
@@ -247,13 +254,15 @@ void mt6701Show(bool json) {
 #ifdef USE_WEBSERVER
     } else {
       // show value for angle on web-server
-      WSContentSend_PD(HTTP_SNS_ANGLE, mt6701_name, mt6701_angle);
+      WSContentSend_PD(HTTP_SNS_ANGLE, mt6701_name, mt6701_avg_deg_angle);
 #endif  // USE_WEBSERVER
     }
   }
 }
 
-/*****************************************************************************/
+/*****************************************************************************
+* Process commands as delivered from FUNC_COMMAND callback.
+*/
 bool mt6701_Command(void) {
   bool serviced = true;
   uint8_t paramcount = 0;
