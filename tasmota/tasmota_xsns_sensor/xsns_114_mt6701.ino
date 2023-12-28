@@ -135,7 +135,25 @@ const uint8_t MT6701_I2C_EEPROM_A_STOP_BIT_S = 4;
 
 uint8_t mt6701_found = 0;
 uint8_t mt6701_valid = 0;
+uint16_t mt6701_raw_angle;
+float mt6701_rad_angle = 0;
+float mt6701_avg_rad_angle = 0;
+float mt6701_avg_deg_angle = 0;
+
 float mt6701_angle = 0;
+float mt6701_last_angle = 0;
+float mt6701_min_angle = 360;
+float mt6701_max_angle = 0;
+uint32_t mt6701_sample_cnt = 0;
+// for Yamartino method
+float mt6701_sum_sin = 0;
+float mt6701_sum_cos = 0;
+
+#define PI 3.1415926535897932384626433832795
+#define HALF_PI 1.5707963267948966192313216916398
+#define TWO_PI 6.283185307179586476925286766559
+#define DEG_TO_RAD 0.017453292519943295769236907684886
+#define RAD_TO_DEG 57.295779513082320876798154814105
 
 /*****************************************************************************/
 bool mt6701Detect(void) {
@@ -169,13 +187,15 @@ bool mt6701Detect(void) {
 bool mt6701Read_angle(void) {
   uint8_t high_byte;
   uint8_t low_byte;
-  uint16_t raw_angle;
 
   // Read the two raw angle registers
   if (I2cValidRead8(&high_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_H)
       && I2cValidRead8(&low_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_L)) {
-    raw_angle = (high_byte << 6) | (low_byte >> 2);
+    mt6701_raw_angle = (high_byte << 6) | (low_byte >> 2);
+    /*
+    mt6701_last_angle = mt6701_angle;
     mt6701_angle = float(raw_angle) * 360 / 16384; // 2^14
+    */
     mt6701_valid = 1;
     return true;
   } else {
@@ -187,17 +207,40 @@ bool mt6701Read_angle(void) {
 
 /*****************************************************************************/
 void mt6701EverySecond(void) {
-   mt6701Read_angle();
+  if (mt6701Read_angle()) {
+    /*
+    if (mt6701_angle > mt6701_max_angle) mt6701_max_angle = mt6701_angle;
+    if (mt6701_angle < mt6701_min_angle) mt6701_min_angle = mt6701_angle;
+    */
+    // sum up the angle samples sine's and cosine's for averaging using the
+    // Yamartino method
+    mt6701_rad_angle = mt6701_raw_angle * TWO_PI / 16384; // full circle is 2^14
+    mt6701_sum_sin += sin(mt6701_rad_angle);
+    mt6701_sum_cos += cos(mt6701_rad_angle);
+    mt6701_sample_cnt++;
+  }
 }
 
-/*****************************************************************************/
+/*****************************************************************************
+ *  Filter multiple samples to get an average wind direction using Yamartino
+ *  method, see https://en.wikipedia.org/wiki/Yamartino_method
+ *  also see Directional statistics https://en.wikipedia.org/wiki/Directional_statistics
+ */
 void mt6701Show(bool json) {
   char angle_str[8];
 
   if (mt6701_valid) {
 
     // convert angle to string with two decimals
-    dtostrf(mt6701_angle, sizeof(angle_str) - 1, 2, angle_str);
+    mt6701_avg_rad_angle = atan2(mt6701_sum_cos / mt6701_sample_cnt, mt6701_sum_sin / mt6701_sample_cnt);
+    mt6701_sample_cnt = 0;
+    mt6701_sum_cos = 0;
+    mt6701_sum_sin = 0;
+
+    float eps = sqrt(1 - sq(mt6701_sum_sin) + sq(mt6701_sum_cos));
+    float sigma = asin(eps * (1 + (2 / sqrt(3) - 1) * pow(eps, 3)));
+    mt6701_avg_deg_angle = mt6701_avg_rad_angle * RAD_TO_DEG;
+    dtostrf(mt6701_avg_deg_angle, sizeof(angle_str) - 1, 2,angle_str);
 
     if (json) {
       ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ANGLE "\":%s}"), mt6701_name, angle_str);
