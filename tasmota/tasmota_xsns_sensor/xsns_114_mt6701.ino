@@ -62,6 +62,8 @@
 
 #define MT6701_ADDRESS                          (0x06)    // 0000110
 
+#define D_WINDDIR_NAME "WindDir"
+
 // strings for use in message generation
 // should go to tasmota/include/i18n.h and tasmota/language/en_GB.h
 #define D_JSON_ANGLE "Angle"
@@ -70,12 +72,13 @@ const char JSON_SNS_ANGLE[] PROGMEM = ",\"%s\":{\"" D_JSON_ANGLE "\":%d}";
 #define D_ANGLE "Angle"
 //#define D_UNIT_ANGLE "deg"
 #ifdef USE_WEBSERVER
-const char HTTP_SNS_ANGLE[]   PROGMEM = "{s}%s "  D_ANGLE         "{m}%d " D_UNIT_ANGLE                 "{e}";
+const char HTTP_SNS_ANGLE[]   PROGMEM =
+   "{s}" D_WINDDIR_NAME " %s " D_ANGLE "{m}%d " D_UNIT_ANGLE "{e}";
 #endif // USE_WEBSERVER
 
 const char MT6701_CONF_RESPONSE[] PROGMEM = "{\"MT6701_CONF\":{\"%s\":%s}}";
 
-char mt6701_name[] = "MT6701";
+const char mt6701_name[] = D_WINDDIR_NAME;
 
 /*=== Sensor register addresses ===*/
 // Angle Data Register
@@ -137,17 +140,14 @@ uint8_t mt6701_found = 0;
 uint8_t mt6701_valid = 0;
 uint16_t mt6701_raw_angle;
 float mt6701_rad_angle = 0;
+float mt6701_deg_angle = 0;
 float mt6701_avg_rad_angle = 0;
 float mt6701_avg_deg_angle = 0;
 
-float mt6701_angle = 0;
-float mt6701_last_angle = 0;
-float mt6701_min_angle = 360;
-float mt6701_max_angle = 0;
-uint32_t mt6701_sample_cnt = 0;
-// for Yamartino method
+// for Yamartino directional statistics method
 float mt6701_sum_sin = 0;
 float mt6701_sum_cos = 0;
+uint32_t mt6701_sample_cnt = 0;
 
 #define PI 3.1415926535897932384626433832795
 #define HALF_PI 1.5707963267948966192313216916398
@@ -196,10 +196,7 @@ bool mt6701Read_angle(void) {
   if (I2cValidRead8(&high_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_H)
       && I2cValidRead8(&low_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_L)) {
     mt6701_raw_angle = (high_byte << 6) | (low_byte >> 2);
-    /*
-    mt6701_last_angle = mt6701_angle;
-    mt6701_angle = float(raw_angle) * 360 / 16384; // 2^14
-    */
+    mt6701_deg_angle = float(mt6701_raw_angle) * 360 / 16384; // sensor full rotation is 2^14
     mt6701_valid = 1;
     return true;
   } else {
@@ -220,7 +217,7 @@ void mt6701EverySecond(void) {
     if (mt6701_angle > mt6701_max_angle) mt6701_max_angle = mt6701_angle;
     if (mt6701_angle < mt6701_min_angle) mt6701_min_angle = mt6701_angle;
     */
-    mt6701_rad_angle = mt6701_raw_angle * TWO_PI / 16384; // full circle is 2^14
+    mt6701_rad_angle = mt6701_raw_angle * TWO_PI / 16384; // sensor full rotation is 2^14
     mt6701_sum_sin += sin(mt6701_rad_angle);
     mt6701_sum_cos += cos(mt6701_rad_angle);
     mt6701_sample_cnt++;
@@ -235,26 +232,49 @@ void mt6701EverySecond(void) {
  */
 void mt6701Show(bool json) {
   char angle_str[8];
+  char moment_angle_str[8];
+  char windrose_str[4];
 
   if (mt6701_valid) {
-
     // convert angle to string with two decimals
     mt6701_avg_rad_angle = atan2(mt6701_sum_cos / mt6701_sample_cnt, mt6701_sum_sin / mt6701_sample_cnt);
+    uint32_t sample_cnt = mt6701_sample_cnt;
     mt6701_sample_cnt = 0;
     mt6701_sum_cos = 0;
     mt6701_sum_sin = 0;
 
-    float eps = sqrt(1 - sq(mt6701_sum_sin) + sq(mt6701_sum_cos));
-    float sigma = asin(eps * (1 + (2 / sqrt(3) - 1) * pow(eps, 3)));
+    float eps = sqrt(1 - (sq(mt6701_sum_sin) + sq(mt6701_sum_cos)));
+    float sigma = asin(eps) * (1 + (2 / sqrt(3) - 1) * pow(eps, 3));
     mt6701_avg_deg_angle = mt6701_avg_rad_angle * RAD_TO_DEG;
-    dtostrf(mt6701_avg_deg_angle, sizeof(angle_str) - 1, 2,angle_str);
-
+    dtostrf(mt6701_avg_deg_angle, sizeof(angle_str) - 1, 2, angle_str);
+    dtostrf(mt6701_deg_angle, sizeof(moment_angle_str) - 1, 2, moment_angle_str);
+    
     if (json) {
-      ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ANGLE "\":%s}"), mt6701_name, angle_str);
+      ResponseAppend_P(PSTR(",\"" D_WINDDIR_NAME "\":{\"" D_JSON_ANGLE "\":{\"MeanDir\":%s,\"SampleCnt\":%d,\"MomentDir\":%s}}"),
+                       angle_str, sample_cnt, moment_angle_str);
+
 #ifdef USE_WEBSERVER
     } else {
       // show value for angle on web-server
-      WSContentSend_PD(HTTP_SNS_ANGLE, mt6701_name, mt6701_avg_deg_angle);
+      if ((mt6701_avg_deg_angle >= 360 - 22.5) || mt6701_avg_deg_angle < 22.5) {
+        strcpy(windrose_str, "N");
+      } else if (mt6701_avg_deg_angle >= 22.5 && mt6701_avg_deg_angle <  90 - 22.5) {
+        strcpy(windrose_str, "NE");
+      } else if (mt6701_avg_deg_angle >= 90 - 22.5 && mt6701_avg_deg_angle < 90 + 22.5) {
+        strcpy(windrose_str, "E");
+      } else if (mt6701_avg_deg_angle >= 135 - 22.5 && mt6701_avg_deg_angle < 135 + 22.5) {
+        strcpy(windrose_str, "SE");
+      } else if (mt6701_avg_deg_angle >= 180 - 22.5 && mt6701_avg_deg_angle < 180 + 22.5) {
+        strcpy(windrose_str, "S");
+      } else if (mt6701_avg_deg_angle >= 225 - 22.5 && mt6701_avg_deg_angle < 225 + 22.5) {
+        strcpy(windrose_str, "SW");
+      } else if (mt6701_avg_deg_angle >= 270 - 22.5 && mt6701_avg_deg_angle < 270 + 22.5) {
+        strcpy(windrose_str, "W");
+      } else if (mt6701_avg_deg_angle >= 315 - 22.5 && mt6701_avg_deg_angle < 315 + 22.5) {
+        strcpy(windrose_str, "NW");
+      }
+
+      WSContentSend_PD(HTTP_SNS_ANGLE, windrose_str, mt6701_avg_deg_angle);
 #endif  // USE_WEBSERVER
     }
   }
