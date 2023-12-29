@@ -147,11 +147,13 @@ float mt6701_rad_angle = 0;
 float mt6701_deg_angle = 0;
 float mt6701_avg_rad_angle = 0;
 float mt6701_avg_deg_angle = 0;
+float  mt6701_avg_sigma = 0;
 
 // for Yamartino directional statistics method
 float mt6701_sum_sin = 0;
 float mt6701_sum_cos = 0;
 uint32_t mt6701_sample_cnt = 0;
+uint32_t mt6701_sample_num = 0;
 
 #define PI 3.1415926535897932384626433832795
 #define HALF_PI 1.5707963267948966192313216916398
@@ -212,7 +214,7 @@ bool mt6701Read_angle(void) {
 
 /*****************************************************************************
 * Sample MT6701 sensor whenever a FUNC_EVERY_SECOND callback arrives,
-* sum up the angle sample's sine and cosine for averaging using the
+* Sum up the angle sample's sine and cosine for averaging using the
 * Yamartino method.
 */
 void mt6701EverySecond(void) {
@@ -226,40 +228,48 @@ void mt6701EverySecond(void) {
     mt6701_sum_cos += cos(mt6701_rad_angle);
     mt6701_sample_cnt++;
   }
+
+  if (UpTime() % 60 == 0) {
+    // every minute
+    // Filter multiple samples to get an average wind direction using Yamartino
+    // method, see https://en.wikipedia.org/wiki/Yamartino_method
+    // also see Directional statistics article:
+    // https://en.wikipedia.org/wiki/Directional_statistics
+
+    // calculate mean
+    mt6701_avg_rad_angle = atan2(mt6701_sum_cos / mt6701_sample_cnt, mt6701_sum_sin / mt6701_sample_cnt);
+    mt6701_avg_deg_angle = mt6701_avg_rad_angle * RAD_TO_DEG;
+    // calculate variance
+    float eps = sqrt(1 - (sq(mt6701_sum_sin) + sq(mt6701_sum_cos)));
+    mt6701_avg_sigma = asin(eps) * (1 + (2 / sqrt(3) - 1) * pow(eps, 3));
+    
+    // reset statistics
+    mt6701_sample_num = mt6701_sample_cnt;
+    mt6701_sample_cnt = 0;
+    mt6701_sum_cos = 0;
+    mt6701_sum_sin = 0;
+
+    // TODO: make dependent of Settings->tele_period instead of sending
+    //       every minute.
+    //       Maybe send whenever wind direction changes more than a certain
+    //       amount
+    MqttPublishTeleperiodSensor();
+  }
 }
 
 /*****************************************************************************
- *  Filter multiple samples to get an average wind direction using Yamartino
- *  method, see https://en.wikipedia.org/wiki/Yamartino_method
- *  also see Directional statistics https://en.wikipedia.org/wiki/Directional_statistics
- *  Produce JSON or HTTP string and send to respective network channel.
- *
- * TODO:
- *   make shure calls for JSON and for WEB do not interfer with each other
- *   when doing statistics.
- */
+* Produce JSON or HTTP string and send to respective network channel.
+*/
 void mt6701Show(bool json) {
   //char angle_str[8];
   //char moment_angle_str[8];
   char windrose_str[4];
 
   if (mt6701_valid) {
-    // convert angle to string with two decimals
-    mt6701_avg_rad_angle = atan2(mt6701_sum_cos / mt6701_sample_cnt, mt6701_sum_sin / mt6701_sample_cnt);
-    uint32_t sample_cnt = mt6701_sample_cnt;
-    mt6701_sample_cnt = 0;
-    mt6701_sum_cos = 0;
-    mt6701_sum_sin = 0;
-
-    float eps = sqrt(1 - (sq(mt6701_sum_sin) + sq(mt6701_sum_cos)));
-    float sigma = asin(eps) * (1 + (2 / sqrt(3) - 1) * pow(eps, 3));
-    mt6701_avg_deg_angle = mt6701_avg_rad_angle * RAD_TO_DEG;
-    //dtostrf(mt6701_avg_deg_angle, sizeof(angle_str) - 1, 2, angle_str);
-    //dtostrf(mt6701_deg_angle, sizeof(moment_angle_str) - 1, 2, moment_angle_str);
     
     if (json) {
       ResponseAppend_P(PSTR(",\"" D_WINDDIR_NAME "\":{\"" D_JSON_ANGLE "\":{\"MeanDir\":%2_f,\"Variance\":%4_f,\"SampleCnt\":%d,\"MomentDir\":%2_f}}"),
-                       mt6701_avg_deg_angle, sigma, sample_cnt, mt6701_deg_angle);
+                       mt6701_avg_deg_angle,  mt6701_avg_sigma, mt6701_sample_num, mt6701_deg_angle);
 
 #ifdef USE_WEBSERVER
     } else {
