@@ -43,6 +43,8 @@
  * is moved nearer of further away. This can be used as a push button signal.
  * As this push button signal is output to a pin and cannot be read out via I2C it is not
  * used here.
+ * It would be possible though to connect the push button output to a GPIO pin and treat it
+ * as a normal switch.
  *
  * Settings can be written to an integrated EEPROM. But for this to work properly a supply
  * voltage from 4.5 to 5 V is needed. In the Tasmota environment a supply voltage of 3.3 V
@@ -75,8 +77,10 @@ const char JSON_SNS_ANGLE[] PROGMEM = ",\"%s\":{\"" D_JSON_ANGLE "\":%d}";
 
 #define D_ANGLE "Angle"
 //#define D_UNIT_ANGLE "deg"
+#define D_LOG_MT6701 "MT6701: "          // MT6701 sensor
+
 #ifdef USE_WEBSERVER
-const char HTTP_SNS_ANGLE[]   PROGMEM =
+const char HTTP_SNS_ANGLE[] PROGMEM =
    "{s}" D_WINDDIR_NAME " %s " D_ANGLE "{m}%d " D_UNIT_ANGLE "{e}";
 #endif // USE_WEBSERVER
 
@@ -155,10 +159,6 @@ float mt6701_sum_cos = 0;
 uint32_t mt6701_sample_cnt = 0;
 uint32_t mt6701_sample_num = 0;
 
-#define PI 3.1415926535897932384626433832795
-#define HALF_PI 1.5707963267948966192313216916398
-#define TWO_PI 6.283185307179586476925286766559
-#define DEG_TO_RAD 0.017453292519943295769236907684886
 #define RAD_TO_DEG 57.295779513082320876798154814105
 
 /*****************************************************************************
@@ -176,7 +176,7 @@ bool mt6701Detect(void) {
       && I2cValidRead8(&low_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_L)) {
     mt6701_found = true;
     // Log sensor found
-    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C "MT6701" D_FOUND_AT " 0x%X"), MT6701_ADDRESS);
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C D_LOG_MT6701 D_FOUND_AT " 0x%X"), MT6701_ADDRESS);
 
     // do some initializations to the sensor here
     // maybe setting the positive rotation direction.
@@ -185,7 +185,7 @@ bool mt6701Detect(void) {
 
   } else {
     mt6701_found = false;
-    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C "MT6701: No sensor found"));
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C D_LOG_MT6701 "No sensor found"));
 
     return false;
   }
@@ -202,7 +202,7 @@ bool mt6701Read_angle(void) {
   if (I2cValidRead8(&high_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_H)
       && I2cValidRead8(&low_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_L)) {
     mt6701_raw_angle = (high_byte << 6) | (low_byte >> 2);
-    mt6701_deg_angle = float(mt6701_raw_angle) * 360 / 16384; // sensor full rotation is 2^14
+    mt6701_deg_angle = float(mt6701_raw_angle) * 360.0f / 16384.0f; // sensor full rotation is 2^14
     mt6701_valid = 1;
     return true;
   } else {
@@ -223,13 +223,14 @@ void mt6701EverySecond(void) {
     if (mt6701_angle > mt6701_max_angle) mt6701_max_angle = mt6701_angle;
     if (mt6701_angle < mt6701_min_angle) mt6701_min_angle = mt6701_angle;
     */
-    mt6701_rad_angle = mt6701_raw_angle * TWO_PI / 16384; // sensor full rotation is 2^14
+    mt6701_rad_angle = mt6701_raw_angle * (float)f_twopi / 16384.0f; // sensor full rotation is 2^14
     mt6701_sum_sin += sin(mt6701_rad_angle);
     mt6701_sum_cos += cos(mt6701_rad_angle);
     mt6701_sample_cnt++;
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MT6701 "%d"), mt6701_raw_angle);
   }
 
-  if (UpTime() % 60 == 0) {
+  if (TasmotaGlobal.uptime % 60 == 0) {
     // every minute
     // Filter multiple samples to get an average wind direction using Yamartino
     // method, see https://en.wikipedia.org/wiki/Yamartino_method
@@ -238,10 +239,10 @@ void mt6701EverySecond(void) {
 
     // calculate mean
     mt6701_avg_rad_angle = atan2(mt6701_sum_cos / mt6701_sample_cnt, mt6701_sum_sin / mt6701_sample_cnt);
-    mt6701_avg_deg_angle = mt6701_avg_rad_angle * RAD_TO_DEG;
+    mt6701_avg_deg_angle = mt6701_avg_rad_angle * (float)RAD_TO_DEG;
     // calculate variance
-    float eps = sqrt(1 - (sq(mt6701_sum_sin) + sq(mt6701_sum_cos)));
-    mt6701_avg_sigma = asin(eps) * (1 + (2 / sqrt(3) - 1) * pow(eps, 3));
+    float eps = sqrt(1.0f - (sq(mt6701_sum_sin) + sq(mt6701_sum_cos)));
+    mt6701_avg_sigma = asin(eps) * (1.0f + (2.0f / sqrt(3.0f) - 1.0f) * pow(eps, 3.0f));
     
     // reset statistics
     mt6701_sample_num = mt6701_sample_cnt;
@@ -269,14 +270,14 @@ void mt6701Show(bool json) {
     
     if (json) {
       ResponseAppend_P(PSTR(",\"" D_WINDDIR_NAME "\":{\"" D_JSON_ANGLE "\":{\"MeanDir\":%2_f,\"Variance\":%4_f,\"SampleCnt\":%d,\"MomentDir\":%2_f}}"),
-                       mt6701_avg_deg_angle,  mt6701_avg_sigma, mt6701_sample_num, mt6701_deg_angle);
+                       mt6701_avg_deg_angle, sq(mt6701_avg_sigma), mt6701_sample_num, mt6701_deg_angle);
 
 #ifdef USE_WEBSERVER
     } else {
       // show value for angle on web-server
       if ((mt6701_avg_deg_angle >= 360 - 22.5) || mt6701_avg_deg_angle < 22.5) {
         strcpy(windrose_str, "N");
-      } else if (mt6701_avg_deg_angle >= 22.5 && mt6701_avg_deg_angle <  90 - 22.5) {
+      } else if (mt6701_avg_deg_angle >= 22.5 && mt6701_avg_deg_angle < 90 - 22.5) {
         strcpy(windrose_str, "NE");
       } else if (mt6701_avg_deg_angle >= 90 - 22.5 && mt6701_avg_deg_angle < 90 + 22.5) {
         strcpy(windrose_str, "E");
