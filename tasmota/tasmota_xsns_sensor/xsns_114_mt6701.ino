@@ -51,7 +51,11 @@
  * This probably may destroy the factory programmed values in EEPROM which are not meant
  * to be changed by users.
  *
- * I2C Address: 0x06 (the datasheet mentions that it may be programmed to use 0x46,nstead
+ * This driver is intended to make use of an MT6701 sensor to sense the wind direction in
+ * a wind vane. So it reports the measured angle as "WindDir" and does some statistics to
+ * dampen the variations in wind direction.
+ *
+ * I2C Address: 0x06 (the datasheet mentions that it may be programmed to use 0x46 instead
  *                    which would collide with PCA9685, XI2C_1.
  *                    0x46 address is not supported here.)
  *
@@ -229,10 +233,14 @@ void mt6701EverySecond(void) {
  *  method, see https://en.wikipedia.org/wiki/Yamartino_method
  *  also see Directional statistics https://en.wikipedia.org/wiki/Directional_statistics
  *  Produce JSON or HTTP string and send to respective network channel.
+ *
+ * TODO:
+ *   make shure calls for JSON and for WEB do not interfer with each other
+ *   when doing statistics.
  */
 void mt6701Show(bool json) {
-  char angle_str[8];
-  char moment_angle_str[8];
+  //char angle_str[8];
+  //char moment_angle_str[8];
   char windrose_str[4];
 
   if (mt6701_valid) {
@@ -246,12 +254,12 @@ void mt6701Show(bool json) {
     float eps = sqrt(1 - (sq(mt6701_sum_sin) + sq(mt6701_sum_cos)));
     float sigma = asin(eps) * (1 + (2 / sqrt(3) - 1) * pow(eps, 3));
     mt6701_avg_deg_angle = mt6701_avg_rad_angle * RAD_TO_DEG;
-    dtostrf(mt6701_avg_deg_angle, sizeof(angle_str) - 1, 2, angle_str);
-    dtostrf(mt6701_deg_angle, sizeof(moment_angle_str) - 1, 2, moment_angle_str);
+    //dtostrf(mt6701_avg_deg_angle, sizeof(angle_str) - 1, 2, angle_str);
+    //dtostrf(mt6701_deg_angle, sizeof(moment_angle_str) - 1, 2, moment_angle_str);
     
     if (json) {
-      ResponseAppend_P(PSTR(",\"" D_WINDDIR_NAME "\":{\"" D_JSON_ANGLE "\":{\"MeanDir\":%s,\"SampleCnt\":%d,\"MomentDir\":%s}}"),
-                       angle_str, sample_cnt, moment_angle_str);
+      ResponseAppend_P(PSTR(",\"" D_WINDDIR_NAME "\":{\"" D_JSON_ANGLE "\":{\"MeanDir\":%2_f,\"Variance\":%4_f,\"SampleCnt\":%d,\"MomentDir\":%2_f}}"),
+                       mt6701_avg_deg_angle, sigma, sample_cnt, mt6701_deg_angle);
 
 #ifdef USE_WEBSERVER
     } else {
