@@ -66,7 +66,7 @@
 #define XSNS_114                                114
 #define XI2C_86                                 86        // See I2CDEVICES.md
 
-#define MT6701_ADDRESS                          (0x06)    // 0000110
+#define MT6701_ADDRESS                          0x06      // 0000110
 
 #define D_WINDDIR_NAME "WindDir"
 
@@ -81,7 +81,7 @@ const char JSON_SNS_ANGLE[] PROGMEM = ",\"%s\":{\"" D_JSON_ANGLE "\":%d}";
 
 #ifdef USE_WEBSERVER
 const char HTTP_SNS_ANGLE[] PROGMEM =
-   "{s}" D_WINDDIR_NAME " %s " D_ANGLE "{m}%d " D_UNIT_ANGLE "{e}";
+   "{s}" D_WINDDIR_NAME " " D_ANGLE "{m}%2_f " D_UNIT_ANGLE " (%s){e}";
 #endif // USE_WEBSERVER
 
 const char MT6701_CONF_RESPONSE[] PROGMEM = "{\"MT6701_CONF\":{\"%s\":%s}}";
@@ -151,7 +151,7 @@ float mt6701_rad_angle = 0;
 float mt6701_deg_angle = 0;
 float mt6701_avg_rad_angle = 0;
 float mt6701_avg_deg_angle = 0;
-float  mt6701_avg_sigma = 0;
+float mt6701_avg_sigma = 0;
 
 // for Yamartino directional statistics method
 float mt6701_sum_sin = 0;
@@ -174,9 +174,14 @@ bool mt6701Detect(void) {
   uint8_t low_byte;
   if (I2cValidRead8(&high_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_H)
       && I2cValidRead8(&low_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_L)) {
+
     mt6701_found = true;
-    // Log sensor found
+    //I2cSetActiveFound(MT6701_ADDRESS, "MT6701", bus);
+    //AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C D_LOG_MT6701 "bus %s addr 0x%X"), bus, MT6701_ADDRESS);
     AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C D_LOG_MT6701 D_FOUND_AT " 0x%X"), MT6701_ADDRESS);
+  }
+
+  if (mt6701_found) {
 
     // do some initializations to the sensor here
     // maybe setting the positive rotation direction.
@@ -185,8 +190,7 @@ bool mt6701Detect(void) {
 
   } else {
     mt6701_found = false;
-    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C D_LOG_MT6701 "No sensor found"));
-
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C D_LOG_MT6701 "No sensor found"));    
     return false;
   }
 }
@@ -219,15 +223,11 @@ bool mt6701Read_angle(void) {
 */
 void mt6701EverySecond(void) {
   if (mt6701Read_angle()) {
-    /*
-    if (mt6701_angle > mt6701_max_angle) mt6701_max_angle = mt6701_angle;
-    if (mt6701_angle < mt6701_min_angle) mt6701_min_angle = mt6701_angle;
-    */
-    mt6701_rad_angle = mt6701_raw_angle * (float)f_twopi / 16384.0f; // sensor full rotation is 2^14
+    mt6701_rad_angle = (float)mt6701_raw_angle * (float)f_twopi / 16384.0f; // sensor full rotation is 2^14
     mt6701_sum_sin += sin(mt6701_rad_angle);
     mt6701_sum_cos += cos(mt6701_rad_angle);
     mt6701_sample_cnt++;
-    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MT6701 "%d"), mt6701_raw_angle);
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MT6701 "sampled raw: %d"), mt6701_raw_angle);
   }
 
   if (TasmotaGlobal.uptime % 60 == 0) {
@@ -238,12 +238,20 @@ void mt6701EverySecond(void) {
     // https://en.wikipedia.org/wiki/Directional_statistics
 
     // calculate mean
-    mt6701_avg_rad_angle = atan2(mt6701_sum_cos / mt6701_sample_cnt, mt6701_sum_sin / mt6701_sample_cnt);
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MT6701 "going to calc mean from %d samples"),
+                                 mt6701_sample_cnt);
+    float sa = mt6701_sum_sin / mt6701_sample_cnt;
+    float ca = mt6701_sum_cos / mt6701_sample_cnt;
+    mt6701_avg_rad_angle = atan2(ca, sa);
     mt6701_avg_deg_angle = mt6701_avg_rad_angle * (float)RAD_TO_DEG;
     // calculate variance
-    float eps = sqrt(1.0f - (sq(mt6701_sum_sin) + sq(mt6701_sum_cos)));
+    float eps = 1.0f - (sq(sa) + sq(ca));
+    if (eps < 0) eps = -eps;
+    eps = sqrt(eps);
     mt6701_avg_sigma = asin(eps) * (1.0f + (2.0f / sqrt(3.0f) - 1.0f) * pow(eps, 3.0f));
-    
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MT6701 "mean: %2_f, sigma: %4_f"),
+                                 &mt6701_avg_deg_angle, &mt6701_avg_sigma);
+
     // reset statistics
     mt6701_sample_num = mt6701_sample_cnt;
     mt6701_sample_cnt = 0;
@@ -254,7 +262,7 @@ void mt6701EverySecond(void) {
     //       every minute.
     //       Maybe send whenever wind direction changes more than a certain
     //       amount
-    MqttPublishTeleperiodSensor();
+    //MqttPublishTeleperiodSensor();
   }
 }
 
@@ -264,13 +272,15 @@ void mt6701EverySecond(void) {
 void mt6701Show(bool json) {
   //char angle_str[8];
   //char moment_angle_str[8];
-  char windrose_str[4];
+  char windrose_str[4] = "";
 
   if (mt6701_valid) {
     
     if (json) {
-      ResponseAppend_P(PSTR(",\"" D_WINDDIR_NAME "\":{\"" D_JSON_ANGLE "\":{\"MeanDir\":%2_f,\"Variance\":%4_f,\"SampleCnt\":%d,\"MomentDir\":%2_f}}"),
-                       mt6701_avg_deg_angle, sq(mt6701_avg_sigma), mt6701_sample_num, mt6701_deg_angle);
+      float variance = sq(mt6701_avg_sigma);
+      ResponseAppend_P(PSTR(",\"" D_WINDDIR_NAME "\":{\"" D_JSON_ANGLE 
+                       "\":{\"MeanDir\":%2_f,\"Variance\":%4_f,\"SampleCnt\":%d,\"MomentDir\":%2_f}}"),
+                       &mt6701_avg_deg_angle, &variance, mt6701_sample_num, &mt6701_deg_angle);
 
 #ifdef USE_WEBSERVER
     } else {
@@ -293,7 +303,7 @@ void mt6701Show(bool json) {
         strcpy(windrose_str, "NW");
       }
 
-      WSContentSend_PD(HTTP_SNS_ANGLE, windrose_str, mt6701_avg_deg_angle);
+      WSContentSend_PD(HTTP_SNS_ANGLE, &mt6701_avg_deg_angle, windrose_str);
 #endif  // USE_WEBSERVER
     }
   }
@@ -365,11 +375,15 @@ bool Xsns114(uint32_t callback_id) {
   bool result = false;
 
   // Check if there is another I2C driver enabled with the same address range id
-  if (!I2cEnabled(XI2C_86)) { return false; }
+  if (!I2cEnabled(XI2C_86)) {
+    //AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MT6701 "I2C %d disabled"), XI2C_86);
+    return false;
+  }
 
   // Check which callback ID is called by Tasmota
   if (callback_id == FUNC_INIT) {
     mt6701Detect();
+
   } else if (mt6701_found) {
     switch (callback_id) {
       case FUNC_EVERY_50_MSECOND:
@@ -378,11 +392,11 @@ bool Xsns114(uint32_t callback_id) {
         mt6701EverySecond();
         break;
       case FUNC_JSON_APPEND:
-         mt6701Show(1);
+        mt6701Show(1);
         break;
 #ifdef USE_WEBSERVER
       case FUNC_WEB_SENSOR:
-         mt6701Show(0);
+        mt6701Show(0);
         break;
 #endif // USE_WEBSERVER
       case FUNC_SAVE_BEFORE_RESTART:
