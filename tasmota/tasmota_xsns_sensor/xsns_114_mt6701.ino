@@ -161,6 +161,25 @@ uint32_t mt6701_sample_num = 0;
 
 #define RAD_TO_DEG 57.295779513082320876798154814105
 
+#define MT6701_CW  false
+#define MT6701_CCW true
+
+
+/*****************************************************************************
+* MT6701 default revolution direction is counterclockwise. This differs from
+* the common windrose convention (E = 90°, W = 270") so we set the revolution
+* direction to clockwise here.
+*/
+void mt6701SetDir(bool dir) {
+  uint8_t bkup;
+  I2cValidRead8(&bkup, MT6701_ADDRESS, MT6701_I2C_EEPROM_DIR_REG);
+  if (dir)
+    bkup |= 1 << MT6701_I2C_EEPROM_DIR_BIT;
+  else
+    bkup &= ~(1 << MT6701_I2C_EEPROM_DIR_BIT);
+  I2cWrite8(MT6701_ADDRESS, MT6701_I2C_EEPROM_DIR_REG, bkup);
+}
+
 /*****************************************************************************
 * Check if sensor is connected on I2C address.
 * There is no secure way to find out whether the device responding under
@@ -168,6 +187,9 @@ uint32_t mt6701_sample_num = 0;
 * response when trying to read from some registers.
 * An option would be to try to write to some of the registers and check whether
 * the written data can be read back. Not shure whether that would be helpful.
+* One idea for ensuring we speak to a MT6701 sensor might be to switch the
+* rotation direction and check whether the read angle value switches by 180°
+* immediatly afterwards. This might not work with high rotation speeds.
 */
 bool mt6701Detect(void) {
   uint8_t high_byte;
@@ -185,6 +207,7 @@ bool mt6701Detect(void) {
 
     // do some initializations to the sensor here
     // maybe setting the positive rotation direction.
+    mt6701SetDir(MT6701_CCW);
 
     return true;
 
@@ -242,7 +265,10 @@ void mt6701EverySecond(void) {
                                  mt6701_sample_cnt);
     float sa = mt6701_sum_sin / mt6701_sample_cnt;
     float ca = mt6701_sum_cos / mt6701_sample_cnt;
-    mt6701_avg_rad_angle = atan2(ca, sa);
+    mt6701_avg_rad_angle = atan2(sa, ca);
+    // atan2 has a return range from -pi to + pi, needs to be mapped to 0 to 2pi
+    // see https://stackoverflow.com/questions/1311049/how-to-map-atan2-to-degrees-0-360
+    if (mt6701_avg_rad_angle < 0) mt6701_avg_rad_angle += (float)f_twopi;
     mt6701_avg_deg_angle = mt6701_avg_rad_angle * (float)RAD_TO_DEG;
     // calculate variance
     float eps = 1.0f - (sq(sa) + sq(ca));
