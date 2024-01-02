@@ -293,13 +293,49 @@ void mt6701EverySecond(void) {
 }
 
 /*****************************************************************************
+* Convert angle in degrees to windrose diretions.
+*/
+void degToWindrose(char* windrose_str, float deg) {
+	// show value for angle on web-server
+	if ((mt6701_avg_deg_angle >= 360 - 11.5) || mt6701_avg_deg_angle < 11.5) {
+		strcpy(windrose_str, "N");
+  } else if (mt6701_avg_deg_angle >= 22.5  - 11.25 && mt6701_avg_deg_angle < 22.5 + 11.25) {
+		strcpy(windrose_str, "NNE");
+	} else if (mt6701_avg_deg_angle >= 45    - 11.25 && mt6701_avg_deg_angle < 45   + 11.25) {
+		strcpy(windrose_str, "NE");
+  } else if (mt6701_avg_deg_angle >= 67.5  - 11.25 && mt6701_avg_deg_angle < 67.5 + 11.25) {
+		strcpy(windrose_str, "ENE");
+	} else if (mt6701_avg_deg_angle >= 90    - 11.25 && mt6701_avg_deg_angle < 90   + 11.25) {
+		strcpy(windrose_str, "E");
+  } else if (mt6701_avg_deg_angle >= 112.5 - 11.25 && mt6701_avg_deg_angle < 112.5 + 11.25) {
+		strcpy(windrose_str, "ESE");
+	} else if (mt6701_avg_deg_angle >= 135   - 11.25 && mt6701_avg_deg_angle < 135   + 11.25) {
+		strcpy(windrose_str, "SE");
+  } else if (mt6701_avg_deg_angle >= 157.5 - 11.25 && mt6701_avg_deg_angle < 157.5 + 11.25) {
+		strcpy(windrose_str, "SSE");
+	} else if (mt6701_avg_deg_angle >= 180   - 11.25 && mt6701_avg_deg_angle < 180   + 11.25) {
+		strcpy(windrose_str, "S");
+  } else if (mt6701_avg_deg_angle >= 202.5 - 11.25 && mt6701_avg_deg_angle < 202.5 + 11.25) {
+		strcpy(windrose_str, "SSW");
+	} else if (mt6701_avg_deg_angle >= 225   - 11.25 && mt6701_avg_deg_angle < 225   + 11.25) {
+		strcpy(windrose_str, "SW");
+  } else if (mt6701_avg_deg_angle >= 247.5 - 11.25 && mt6701_avg_deg_angle < 247.5 + 11.25) {
+		strcpy(windrose_str, "WSW");
+	} else if (mt6701_avg_deg_angle >= 270   - 11.25 && mt6701_avg_deg_angle < 270   + 11.25) {
+		strcpy(windrose_str, "W");
+  } else if (mt6701_avg_deg_angle >= 292.5 - 11.25 && mt6701_avg_deg_angle < 292.5 + 11.25) {
+		strcpy(windrose_str, "WNW");
+	} else if (mt6701_avg_deg_angle >= 315   - 11.25 && mt6701_avg_deg_angle < 315   + 11.25) {
+		strcpy(windrose_str, "NW");
+  } else if (mt6701_avg_deg_angle >= 337.5 - 11.25 && mt6701_avg_deg_angle < 337.5 + 11.25) {
+		strcpy(windrose_str, "NNW");
+	}
+}
+
+/*****************************************************************************
 * Produce JSON or HTTP string and send to respective network channel.
 */
 void mt6701Show(bool json) {
-  //char angle_str[8];
-  //char moment_angle_str[8];
-  char windrose_str[4] = "";
-
   if (mt6701_valid) {
     
     if (json) {
@@ -311,24 +347,9 @@ void mt6701Show(bool json) {
 #ifdef USE_WEBSERVER
     } else {
       // show value for angle on web-server
-      if ((mt6701_avg_deg_angle >= 360 - 22.5) || mt6701_avg_deg_angle < 22.5) {
-        strcpy(windrose_str, "N");
-      } else if (mt6701_avg_deg_angle >= 22.5 && mt6701_avg_deg_angle < 90 - 22.5) {
-        strcpy(windrose_str, "NE");
-      } else if (mt6701_avg_deg_angle >= 90 - 22.5 && mt6701_avg_deg_angle < 90 + 22.5) {
-        strcpy(windrose_str, "E");
-      } else if (mt6701_avg_deg_angle >= 135 - 22.5 && mt6701_avg_deg_angle < 135 + 22.5) {
-        strcpy(windrose_str, "SE");
-      } else if (mt6701_avg_deg_angle >= 180 - 22.5 && mt6701_avg_deg_angle < 180 + 22.5) {
-        strcpy(windrose_str, "S");
-      } else if (mt6701_avg_deg_angle >= 225 - 22.5 && mt6701_avg_deg_angle < 225 + 22.5) {
-        strcpy(windrose_str, "SW");
-      } else if (mt6701_avg_deg_angle >= 270 - 22.5 && mt6701_avg_deg_angle < 270 + 22.5) {
-        strcpy(windrose_str, "W");
-      } else if (mt6701_avg_deg_angle >= 315 - 22.5 && mt6701_avg_deg_angle < 315 + 22.5) {
-        strcpy(windrose_str, "NW");
-      }
-
+      char windrose_str[4];
+      char* windrose_str_ptr = windrose_str;
+      degToWindrose(windrose_str, mt6701_avg_deg_angle);
       WSContentSend_PD(HTTP_SNS_ANGLE, &mt6701_avg_deg_angle, windrose_str);
 #endif  // USE_WEBSERVER
     }
@@ -349,7 +370,7 @@ bool mt6701_Command(void) {
 
   char argument[XdrvMailbox.data_len];
   // scan the parameter string to convert it to a standard form and count the
-  // number of delimeted elements
+  // number of delimited elements
   for (uint32_t ca = 0; ca < XdrvMailbox.data_len; ca++) {
     if ((' ' == XdrvMailbox.data[ca]) || ('=' == XdrvMailbox.data[ca])) { XdrvMailbox.data[ca] = ','; }
     if (',' == XdrvMailbox.data[ca]) { paramcount++; }
@@ -361,11 +382,13 @@ bool mt6701_Command(void) {
       if (!strcmp(ArgV(argument, 2), "CW")) {
         //Settings->mt6701_dir = 0;
         //Response_P(MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir);   // "{\"MT6701_CONF\":{\"%s\":%s}}"
+        mt6701SetDir(MT6701_CW);
         return true;
       }
       if (!strcmp(ArgV(argument, 2), "CCW")) {
         //Settings->mt6701_dir = 0;
         //Response_P(MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir);   // "{\"MT6701_CONF\":{\"%s\":%s}}"
+        mt6701SetDir(MT6701_CCW);
       } else {
         return false;
       }
@@ -373,6 +396,10 @@ bool mt6701_Command(void) {
     } else { // No parameter was given for DIR so we return the current configured value
       //Response_P((MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir ? "CCW" : "CW");   // "{\"MT6701_CONF\":{\"%s\":%s}}"
       return true;
+    }
+  } else if (!strcmp(ArgV(argument, 1), "NORTH"))  {
+    if (paramcount > 1) {
+    } else {
     }
   }
 
