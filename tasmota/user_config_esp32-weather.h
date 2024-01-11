@@ -67,6 +67,10 @@
 #define USE_I2C                                  // I2C using library wire (+10k code, 0k2 mem, 124 iram)
 #endif
 
+#ifdef USE_UFILESYS
+#define USE_UFILESYS
+#endif
+
 #ifndef USE_BMP
 #define USE_BMP
 //  #ifndef BME68X

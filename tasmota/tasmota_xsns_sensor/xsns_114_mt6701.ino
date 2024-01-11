@@ -66,6 +66,8 @@
 #define XSNS_114                                114
 #define XI2C_86                                 86        // See I2CDEVICES.md
 
+const uint16_t SNS_MT6701_VERSION = 0x0001;       // Latest driver version (See settings deltas below)
+
 #define MT6701_ADDRESS                          0x06      // 0000110
 
 #define D_WINDDIR_NAME "WindDir"
@@ -163,6 +165,14 @@ uint32_t mt6701_sample_num = 0;
 
 #define MT6701_CW  false
 #define MT6701_CCW true
+
+// Global structure containing driver saved variables
+struct {
+  uint32_t  crc32;    // To detect file changes
+  uint16_t  version;  // To detect driver function changes
+  uint16_t  spare;
+  char      drv_text[DRV_DEMO_MAX_DRV_TEXT][10];
+} mt6701Settings;
 
 
 /*****************************************************************************
@@ -408,6 +418,64 @@ bool mt6701_Command(void) {
 
 
 /*********************************************************************************************\
+ * Driver Settings load and save
+\*********************************************************************************************/
+
+void mt6701SettingsSave(void) {
+  // Called from FUNC_SAVE_SETTINGS every SaveData second and at restart
+#ifdef USE_UFILESYS
+  // calculate CRC32 of settings data not inclding the CRC itself
+  uint32_t crc32 = GetCfgCrc32((uint8_t*)&mt6701Settings + 4, sizeof(mt6701Settings) - 4);
+  if (crc32 != Settings.crc32) {
+    Settings.crc32 = crc32;
+
+    // Try to save file /.snsset114
+    char filename[20];
+    snprintf_P(filename, sizeof(filename), PSTR(TASM_FILE_SENSOR), XSNS_114);
+
+    if (TfsSaveFile(filename, (const uint8_t*)&mt6701Settings, sizeof(mt6701Settings))) {
+      AddLog(LOG_LEVEL_DEBUG, PSTR("CFG: MT6701 saved to file"));
+    } else {
+      // File system not ready: No flash space reserved for file system
+      AddLog(LOG_LEVEL_DEBUG, PSTR("CFG: ERROR file system not ready or unable to save file"));
+    }
+  }
+#endif  // USE_UFILESYS
+}
+
+/*********************************************************************************************/
+void mt6701SettingsLoad(bool erase) {
+  // Called from FUNC_PRE_INIT (erase = 0) once at restart
+  // Called from FUNC_RESET_SETTINGS (erase = 1) after command reset 4, 5, or 6
+
+  // *** Start init default values in case file is not found ***
+  AddLog(LOG_LEVEL_INFO, PSTR("DRV: " D_USE_DEFAULTS));
+
+  memset(&mt6701Settings, 0x00, sizeof(mt6701Settings));
+#ifdef USE_UFILESYS
+  // Try to load file /.snsset114
+  char filename[20];
+  snprintf_P(filename, sizeof(filename), PSTR(TASM_FILE_SENSOR), XSNS_114);
+  if (erase) {
+    TfsDeleteFile(filename);  // Use defaults
+  } else if (TfsLoadFile(filename, (uint8_t*)&mt6701Settings, sizeof(mt6701Settings))) {
+
+    mt6701Settings.version = SNS_MT6701_VERSION;
+    mt6701SettingsSave();
+  }
+#else
+  AddLog(LOG_LEVEL_INFO, PSTR("CFG: MT6701 uses defaults as file system not enabled"));
+#endif  // USE_UFILESYS
+}
+
+/*********************************************************************************************/
+bool &mt6701SettingsRestore(void) {
+  XdrvMailbox.data = (char*)&&mt6701Settings;
+  XdrvMailbox.index = sizeof(&mt6701Settings);
+  return true;
+}
+
+/*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
 
@@ -452,7 +520,15 @@ bool Xsns114(uint32_t callback_id) {
         mt6701Show(0);
         break;
 #endif // USE_WEBSERVER
-      case FUNC_SAVE_BEFORE_RESTART:
+
+      case FUNC_RESET_SETTINGS:
+        mt6701SettingsLoad(1);
+        break;
+      case FUNC_RESTORE_SETTINGS:
+        result = mt6701SettingsRestore();
+        break;
+      case FUNC_SAVE_SETTINGS:
+        mt6701SettingsSave();
         break;
       case FUNC_COMMAND:
         result = mt6701_Command();
