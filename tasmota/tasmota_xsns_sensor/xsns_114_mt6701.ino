@@ -171,7 +171,9 @@ struct {
   uint32_t  crc32;    // To detect file changes
   uint16_t  version;  // To detect driver function changes
   uint16_t  spare;
-  char      drv_text[DRV_DEMO_MAX_DRV_TEXT][10];
+  int16_t   offs_zero_dir;  // 14 bit offset to the direction of zero (north)
+  bool      inc_counterclockwise;  // true: angle value increases by rotation
+                            // in counter clockwise direction 
 } mt6701Settings;
 
 
@@ -239,6 +241,7 @@ bool mt6701Read_angle(void) {
   if (I2cValidRead8(&high_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_H)
       && I2cValidRead8(&low_byte, MT6701_ADDRESS, MT6701_I2C_ANGLE_DATA_REG_L)) {
     mt6701_raw_angle = (high_byte << 6) | (low_byte >> 2);
+    mt6701_raw_angle += mt6701Settings.offs_zero_dir;
     mt6701_deg_angle = float(mt6701_raw_angle) * 360.0f / 16384.0f; // sensor full rotation is 2^14
     mt6701_valid = 1;
     return true;
@@ -303,7 +306,7 @@ void mt6701EverySecond(void) {
 }
 
 /*****************************************************************************
-* Convert angle in degrees to windrose diretions.
+* Convert angle in degrees to windrose directions.
 */
 void degToWindrose(char* windrose_str, float deg) {
 	// show value for angle on web-server
@@ -390,26 +393,31 @@ bool mt6701_Command(void) {
   if (!strcmp(ArgV(argument, 1), "DIR"))  {
     if (paramcount > 1) {
       if (!strcmp(ArgV(argument, 2), "CW")) {
-        //Settings->mt6701_dir = 0;
-        //Response_P(MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir);   // "{\"MT6701_CONF\":{\"%s\":%s}}"
+        mt6701Settings.inc_counterclockwise = false;
+        Response_P(MT6701_CONF_RESPONSE, "DIR", mt6701Settings.inc_counterclockwise ? "CCW" : "CW");   // "{\"MT6701_CONF\":{\"%s\":%s}}"
         mt6701SetDir(MT6701_CW);
         return true;
       }
       if (!strcmp(ArgV(argument, 2), "CCW")) {
-        //Settings->mt6701_dir = 0;
-        //Response_P(MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir);   // "{\"MT6701_CONF\":{\"%s\":%s}}"
+        mt6701Settings.inc_counterclockwise = true;
+        Response_P(MT6701_CONF_RESPONSE, "DIR", mt6701Settings.inc_counterclockwise ? "CCW" : "CW");   // "{\"MT6701_CONF\":{\"%s\":%s}}"
         mt6701SetDir(MT6701_CCW);
+        return true;
       } else {
         return false;
       }
 
     } else { // No parameter was given for DIR so we return the current configured value
-      //Response_P((MT6701_CONF_RESPONSE, "DIR", Settings->mt6701_dir ? "CCW" : "CW");   // "{\"MT6701_CONF\":{\"%s\":%s}}"
+      Response_P((MT6701_CONF_RESPONSE, "DIR", mt6701Settings.inc_counterclockwise ? "CCW" : "CW");   // "{\"MT6701_CONF\":{\"%s\":%s}}"
       return true;
     }
   } else if (!strcmp(ArgV(argument, 1), "NORTH"))  {
     if (paramcount > 1) {
-    } else {
+      // TODO: check parameter 2 for a value from -2^14 to +2^14 and set mt6701Settings.offs_zero_dir to this value.
+      mt6701Settings.offs_zero_dir = 0;
+      Response_P((MT6701_CONF_RESPONSE, "NORTH", mt6701Settings.offs_zero_dir);
+    } else { // No parameter was given for NORTH so we return the current configured value
+      Response_P((MT6701_CONF_RESPONSE, "NORTH", mt6701Settings.offs_zero_dir); 
     }
   }
 
