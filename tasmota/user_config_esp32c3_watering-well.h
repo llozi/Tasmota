@@ -29,8 +29,8 @@
 //   23: unused
 //   24: non-existent
 //   25: unused
-//   26: 162 =Input3
-//   27: unused
+//   26: unused
+//   27: 162 =Input3
 //   28: non-existent
 //   29: non-existent
 //   30: non-existent
@@ -41,7 +41,8 @@
 //   35: unused
 //   36: unused
 //   39: unused
-#define USER_TEMPLATE "{\"NAME\":\"ESP32-WATERING_WELL\",\"GPIO\":[32,1,8256,1,576,0,0,0,160,1,161,224,1,1,1,1,0,640,608,1,0,1,162,1,0,0,0,0,1,1,1,1,1,0,0,1],\"FLAG\":0,\"BASE\":1}"
+#define USER_TEMPLATE "{\"NAME\":\"ESP32-WATERING-WELL\",\"GPIO\":[32,1,8224,1,544,0,0,0,160,1,161,224,0,0,1,1,0,640,608,1,0,1,1,162,0,0,0,0,1,1,1,1,1,0,0,1],\"FLAG\":0,\"BASE\":1}"
+
 #undef MODULE
 #define MODULE USER_MODULE
 
