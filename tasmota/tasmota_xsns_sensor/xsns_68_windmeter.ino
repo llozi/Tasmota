@@ -16,6 +16,9 @@
 
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+  Modified for use with Vaisala WAA15 anemometer (pulse output),
+  (C) 2025, Lukas Zimmermann
 */
 
 #ifdef USE_WINDMETER
@@ -27,10 +30,13 @@
 
 #define D_WINDMETER_NAME "WindMeter"
 
-#define WINDMETER_DEF_RADIUS          61    // Cups' center rotation radius in millimeters (calculated by measuring the distance from the centre axis to the center of one of the cups)
-#define WINDMETER_DEF_PULSES_X_ROT    1     // Number of pulses that occurs in a complete rotation
+//#define WINDMETER_DEF_RADIUS          61    // Cups' center rotation radius in millimeters (calculated by measuring the distance from the centre axis to the center of one of the cups)
+#define WINDMETER_DEF_RADIUS            328   // offset * 1000 in transfer function for Vaisala WAA15 anemometer.
+//#define WINDMETER_DEF_PULSES_X_ROT    1     // Number of pulses that occurs in a complete rotation
+#define WINDMETER_DEF_PULSES_X_ROT      0     // 0 is used for reporting pulses per second appropriate for Vaisala WAA15
 #define WINDMETER_DEF_PULSE_DEBOUNCE  10    // Pulse counter debounce time (milliseconds)
-#define WINDMETER_DEF_SPEED_FACTOR    1.18  // Cup anemometer factor: a compensation factor that depends on the ratio of the cups to the cups center rotation radius
+//#define WINDMETER_DEF_SPEED_FACTOR    1.18  // Cup anemometer factor: a compensation factor that depends on the ratio of the cups to the cups center rotation radius
+#define WINDMETER_DEF_SPEED_FACTOR     0.1007  // factor in transfer function for Vaisala WAA15 anemometer.
 #define WINDMETER_DEF_TELE_PCHANGE    255   // Minimum percentage change between current and last reported speed in order to trigger a new tele message (0...100, 255 means off)
 #define WINDMETER_WEIGHT_AVG_SAMPLE   150   // No of samples to take
 #define WINDMETER_DEF_MEASURE_INTVL   1     // Speed measurement interval: speed value will be computed every X (seconds)
@@ -131,15 +137,25 @@ void WindMeterEverySecond(void)
     WindMeter.measure_counter = 0;
     WindMeter.measure_time = time;
 
-    // speed = ( (pulses / pulses_per_rotation) * (2 * pi * radius) * anemometer_factor ) / delta_time
-    WindMeter.speed = (((WindMeter.counter / Settings->windmeter_pulses_x_rot) * (windmeter_2pi * ((float)Settings->windmeter_radius / 1000)) * ((float)Settings->windmeter_speed_factor / 1000)) / ((float)(time - last_time) / 1000000));
-    WindMeter.counter = 0;
+    if (Settings->windmeter_pulses_x_rot == 0) {
+      // A pulses_x_rot setting of 0 will report values which are appropriate for a Vaisala WAA15 anemometer.
+      // windmeter_speed_factor and windmeter_radius will be used as the coefficients of a linear
+      // transfer function which is specified by Vaisala as v[m/s] = counts/s * 0.1007 + 0.3278.
+      WindMeter.speed = WindMeter.counter
+      * ((float)Settings->windmeter_speed_factor / 1000) + ((float)Settings->windmeter_radius / 1000);
+      WindMeter.counter = 0;
 
-    //char speed_string[FLOATSZ];
-    //dtostrfd(WindMeter.speed, 2, speed_string);
-    //char uspeed_string[FLOATSZ];
-    //dtostrfd(ConvertSpeed(WindMeter.speed), 2, uspeed_string);
-    //AddLog(LOG_LEVEL_DEBUG, PSTR("WMET: Speed %s [m/s] - %s [unit]"), speed_string, uspeed_string);
+    } else {
+      // speed = ( (pulses / pulses_per_rotation) * (2 * pi * radius) * anemometer_factor ) / delta_time
+      WindMeter.speed = (((WindMeter.counter / Settings->windmeter_pulses_x_rot) * (windmeter_2pi * ((float)Settings->windmeter_radius / 1000)) * ((float)Settings->windmeter_speed_factor / 1000)) / ((float)(time - last_time) / 1000000));
+      WindMeter.counter = 0;
+
+      //char speed_string[FLOATSZ];
+      //dtostrfd(WindMeter.speed, 2, speed_string);
+      //char uspeed_string[FLOATSZ];
+      //dtostrfd(ConvertSpeed(WindMeter.speed), 2, uspeed_string);
+      //AddLog(LOG_LEVEL_DEBUG, PSTR("WMET: Speed %s [m/s] - %s [unit]"), speed_string, uspeed_string);
+    }
 
 #ifndef USE_WINDMETER_NOSTATISTICS
     if (WindMeter.speed < WindMeter.speed_min) {
