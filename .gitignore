@@ -2,6 +2,11 @@
 .DS_Store
 .fuse_hidden*
 
+# my ignores
+# my ignores
+tasmota/include/local_ca_data.h
+tasmota/include/local_ca_descriptor.h
+
 ## Compilation artefacts ########
 *.pyc
 *.d
@@ -18,7 +23,7 @@
 data
 unpacked_fs
 unpacked_boards
-tasmota/user_config_override.h
+#tasmota/user_config_override.h
 variants
 variants3
 build
@@ -26,8 +31,8 @@ build_output/*
 firmware.map
 firmware.asm
 tasmota/tasmota.ino.cpp
-platformio_override.ini
-platformio_tasmota_cenv.ini
+#platformio_override.ini
+#platformio_tasmota_cenv.ini
 platformio_tasmota_user_env.ini
 platformio_tasmota_core3_env.ini
 lib/libesp32/berry/generate/*
