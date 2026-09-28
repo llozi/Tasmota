@@ -3,9 +3,13 @@
 .fuse_hidden*
 
 # my ignores
-# my ignores
 tasmota/include/local_ca_data.h
 tasmota/include/local_ca_descriptor.h
+tasmota/user_config_wifi.h
+tasmota/user_config_web_login.h
+tasmota/user_config_location.h
+tasmota/user_config_mqtt.h
+tasmota/user_config_ota.h
 
 ## Compilation artefacts ########
 *.pyc
